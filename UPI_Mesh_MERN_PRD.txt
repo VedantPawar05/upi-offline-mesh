@@ -1,186 +1,0 @@
-﻿UPI Offline Mesh — MERN Edition  |  Product Requirements Document	v1.0.0
-PRODUCT REQUIREMENTS DOCUMENT
-UPI Offline Mesh
-MERN Edition
-Mesh-routed deferred UPI settlement over an offline Bluetooth-style network
-
-Full-Stack Conversion of UPI_Without_Internet (Spring Boot) into a production-ready MERN stack application — with 7 additional security loopholes identified and fixed.
-
-Version 1.0.0   |   MERN Stack (MongoDB · Express · React · Node.js · Redis · Socket.io)
-
-1. Document Metadata
-FieldDetailsFieldDetailsDocument TitleUPI Offline Mesh — MERN Edition PRDVersion1.0.0Project TypeFull-Stack Web Application (MERN)StatusIn DevelopmentTech StackMongoDB, Express.js, React, Node.js, Redis, Socket.ioTarget AudiencePortfolio / Academic ShowcaseOriginal ReferenceUPI_Without_Internet (Spring Boot / Java)DateJune 7, 2026
-
-2. Executive Summary
-This document specifies the requirements for a full-stack MERN conversion of UPI_Without_Internet — a Spring Boot proof-of-concept that demonstrates offline UPI payment routing through a simulated Bluetooth mesh network.
-
-The original Java project proved three things end-to-end: (1) a payment can travel through untrusted intermediary phones without being read or tampered with, (2) the same payment arriving simultaneously through multiple bridge nodes settles exactly once, and (3) a tampered or replayed packet is rejected before touching the ledger. This MERN version preserves every one of these guarantees — verified by running the same cryptographic operations and concurrent tests in Node.js — while additionally fixing seven security loopholes that exist in the original Java implementation.
-
-2.1 What the System Does
-A user in a basement with zero connectivity wants to send money. Their phone encrypts the payment instruction using the server's RSA public key (cached from a prior online session), wraps it in a mesh packet with a time-to-live counter, and hands it to nearby phones via Bluetooth. The packet hops device-to-device until one phone walks outside, gets 4G, and uploads the packet to the backend. The backend then:
-• Hashes the ciphertext (SHA-256) and claims it atomically in Redis — rejecting any duplicate deliveries.
-• Decrypts the payload using the server's RSA private key and AES-GCM, which simultaneously verifies no tampering occurred.
-• Checks the embedded timestamp to reject stale or future-dated packets (replay protection).
-• Verifies the sender's PIN against the bcrypt hash stored in MongoDB (new in MERN version).
-• Runs a MongoDB session-based atomic transfer — debiting the sender and crediting the receiver in a single transaction.
-• Pushes real-time settlement or rejection events to the React dashboard via Socket.io.
-
-2.2 Scope
-This PRD covers the complete MERN stack implementation: Node.js/Express backend, MongoDB data layer, Redis for idempotency and rate limiting, React frontend dashboard, Socket.io real-time events, and a software simulator of the Bluetooth mesh. Real Bluetooth hardware integration is explicitly out of scope.
-
-3. Problem Statement
-3.1 Core Problem
-Standard UPI requires continuous internet connectivity on the sender's device at the moment of payment. In environments with poor or zero connectivity — basements, rural areas, underground venues, disaster zones — UPI transactions are impossible, even though the underlying bank accounts and funds exist.
-
-3.2 Why Offline UPI is Hard
-Simply queuing a transaction offline and sending it later is insecure. Three fundamental challenges must be solved simultaneously:
-
-Challenge 1 — Untrusted Intermediaries
-The payment packet must travel through strangers' phones to reach the internet. Any intermediate device could attempt to read the payment details or modify the amount and beneficiary.
-Challenge 2 — The Duplicate Storm
-The same packet naturally copies to multiple devices as it propagates through the mesh. When several bridge nodes reach connectivity at the same instant and upload the packet simultaneously, a naive system would process it multiple times — debiting the sender repeatedly for a single payment.
-Challenge 3 — Replay Attacks
-An attacker who captures an encrypted packet could replay it hours or days later, causing a second debit from the sender's account.
-
-3.3 Why Convert to MERN
-The original Java/Spring Boot implementation is a backend-only server with a static Thymeleaf dashboard. Converting to MERN achieves the following improvements:
-• Live real-time dashboard via React and Socket.io — no polling required.
-• Distributed idempotency via Redis — the Java version's ConcurrentHashMap only works for a single JVM instance.
-• Industry-standard JavaScript tooling — easier to extend, test, and deploy.
-• Seven additional security loopholes can be addressed cleanly in the middleware pipeline pattern native to Express.
-
-4. Goals and Non-Goals
-4.1 Goals
-• G-01: Replicate every security property of the Java version — encryption, tamper detection, idempotency, replay protection — with zero regression.
-• G-02: Fix all ten identified loopholes (three from the original, seven new ones) in the MERN implementation.
-• G-03: Replace the static Thymeleaf dashboard with a React SPA that shows live mesh state, account balances, and transaction outcomes via Socket.io.
-• G-04: Replace JVM-local ConcurrentHashMap idempotency with Redis SET NX EX — safe across multiple backend instances.
-• G-05: Implement proper PIN verification at settlement time using bcrypt.
-• G-06: Add JWT-based bridge node authentication so only registered nodes can ingest packets.
-• G-07: Add per-bridge-node rate limiting backed by Redis.
-• G-08: Add Zod schema validation with an explicit maximum transaction amount.
-• G-09: Include the TTL field inside the encrypted payload to prevent intermediate tampering.
-• G-10: Emit Socket.io events on rejected transactions so the dashboard immediately reflects silent failures.
-
-4.2 Non-Goals
-• Real Bluetooth Low Energy (BLE) or Wi-Fi Direct integration — the mesh is software-simulated.
-• Real NPCI / bank core integration — accounts are seeded demo data.
-• KYC or real UPI PIN verification against a bank — PIN is bcrypt-hashed locally for demonstration.
-• Mobile application (Android/iOS) — this is a web dashboard only.
-• Production HSM key management — RSA keypair is generated on server startup.
-
-5. Feature Parity — Java vs MERN
-The table below maps every feature in the original Java implementation to its Node.js equivalent. Every feature is either identical in behaviour, equivalent in outcome, or upgraded.
-
-#FeatureJava originalNode.js / MERN impl.StatusF-01Hybrid encryptionjavax.crypto RSA-OAEP + AES-256-GCMnode:crypto built-in — identical wire formatIdenticalF-02Tamper detectionGCM auth tag — throws on bit flipdecipher.final() throws — same behaviourIdenticalF-03Idempotency gateConcurrentHashMap.putIfAbsent (JVM-local)Redis SET NX EX 86400 via ioredis — distributedUpgradedF-04Atomic settlement@Transactional on H2 in-memory DBMongoose session.startTransaction() on MongoDBIdenticalF-05Optimistic locking@Version on Account JPA entityMongoose versionKey: true — same semanticsIdenticalF-06Money precisionBigDecimal — exact decimal arithmeticInteger paise storage (₹500 → 50000) — zero float errorsEquivalentF-07Unique hash index@Index(unique=true) on packetHash columnMongoose { unique: true } on packetHash fieldIdenticalF-08Cache eviction@Scheduled cron every 60 secondsRedis TTL auto-expires — no cron neededUpgradedF-09Dashboard UIThymeleaf HTML — static, polling onlyReact + Socket.io — real-time live pushUpgradedF-10Mesh simulatorMeshSimulatorService.java — JVM objectsmeshSimulatorService.js — JS Map + gossip logicEquivalentF-11Replay protectionsignedAt freshness check inside payloadSame — signedAt inside AES-GCM ciphertextIdenticalF-12Concurrency testJUnit + CountDownLatch simultaneous threadsJest + Promise.all concurrent callsEquivalent
-Note: 'Identical' means the same algorithm, same wire format, same edge-case behaviour. 'Equivalent' means the same observable outcome achieved via a different but correct mechanism. 'Upgraded' means the MERN version is strictly better.
-
-6. Security Loopholes — Analysis and Fixes
-The original Java project acknowledges three problems and solves them. This section documents those three plus seven additional loopholes identified during analysis of the source code, along with their fixes in the MERN implementation.
-
-#LoopholeProblemFixImplementationOriginalThree fixes already in Java versionL-01Untrusted intermediariesStrangers' phones carry payment data — must not read or modify itHybrid RSA-OAEP + AES-256-GCM encryption. GCM auth tag detects any bit flip.hybridCryptoService.jsL-02Duplicate storm3 bridge nodes deliver same packet simultaneously → triple debitRedis SET NX EX — atomic. Exactly one claimer wins across all instances.idempotencyService.jsL-03Replay attacksCaptured ciphertext replayed weeks latersignedAt + UUID nonce inside encrypted payload. 24-hour freshness window.bridgeIngestionService.jsNewSeven new loopholes fixed in MERN versionL-04PIN never verifiedpinHash stored in payload but backend never validates it against accountbcrypt.compare(pinHash, account.pinHash) in settlementService before debitingsettlementService.jsL-05No rate limitingMalicious bridge floods /bridge/ingest → DDoS, cache overflowexpress-rate-limit with Redis store — per bridge node ID, configurable windowrateLimiter.js middlewareL-06Unverified bridge identityX-Bridge-Node-Id is a free-text header — anyone can impersonate a trusted nodeBridge nodes register once, receive a signed JWT. Every ingest request verified.bridgeAuth.js middlewareL-07No amount capOnly checks amount > 0. ₹10,00,000 in one transaction — no alert or limitZod schema enforces max ₹1,00,000 per transaction with clear error messagesinputValidator.js middlewareL-08Single-instance idempotencyConcurrentHashMap works only inside one JVM. Multiple backend instances = duplicate settlementRedis SET NX EX is distributed. Works across any number of backend replicas.idempotencyService.jsL-09Silent rejectionIf sender has insufficient funds, tx is REJECTED silently. Receiver thinks payment succeeded.Audit log in MongoDB + Socket.io push to dashboard on every REJECTED outcomemeshSocket.js + auditLog modelL-10TTL in plaintextMeshPacket.ttl is outside the encrypted payload — any intermediate can extend itttl field included inside the AES-GCM encrypted PaymentInstruction. Outer TTL is hint only.hybridCryptoService.js
-7. Technical Stack
-LayerTechnologyPackage / ToolReasonRuntimeNode.js 20 LTS—Built-in node:crypto covers all RSA + AES needs — zero extra crypto depsFrameworkExpress.js 4expressMinimal, well-understood, easy to add middleware pipelineDatabaseMongoDB 7mongoose 8Flexible document model for accounts, transactions, audit logCache / IdempotencyRedis 7ioredisSET NX EX for distributed atomic idempotency; rate limit countersReal-timeSocket.io 4socket.ioPush rejected/settled tx events to React dashboard instantlyValidationZodzodSchema-first validation — amount cap, TTL range, VPA formatAuthJWTjsonwebtokenSigned bridge node identity tokens — stateless, verifiableRate limitingexpress-rate-limitexpress-rate-limit + rate-limit-redisPer-bridge-node request throttling backed by RedisPasswordbcryptbcryptjsPIN hash comparison at settlement timeFrontendReact 18vite + reactSPA dashboard with live mesh visualizer and transaction ledgerHTTP clientAxiosaxiosFrontend API callsTestingJestjest + supertestUnit tests for crypto, idempotency; integration tests for pipelineDev toolingnodemon + dotenvnodemon, dotenvAuto-restart on file change; env config management
-7.1 Critical Implementation Note — Money Precision
-JavaScript's IEEE 754 floating-point cannot represent all decimal values exactly. For example, 0.1 + 0.2 evaluates to 0.30000000000000004 — a silent error that is catastrophic in a financial system.
-
-The MERN implementation stores all amounts as integer paise (smallest currency unit). ₹500.00 is stored as 50000. All arithmetic — addition, subtraction, comparison — is performed on integers. The amount is divided by 100 only at display time. This eliminates floating-point errors entirely without requiring an external BigDecimal library.
-
-8. Data Models
-8.1 Account
-FieldTypeConstraintsDescriptionvpaStringPrimary key, unique, requiredVirtual Payment Address — e.g. alice@demoholderNameStringrequiredDisplay name of the account holderbalancePaiseNumberrequired, integer, min: 0Balance stored in paise — no floating-point riskpinHashStringrequired, select: falsebcrypt hash of the user's UPI PIN — never returned in API responses__vNumberMongoose versionKey (auto)Optimistic locking counter — equivalent to Java @VersioncreatedAtDateauto (timestamps: true)Account creation timestamp
-8.2 Transaction
-FieldTypeConstraintsDescriptionpacketHashStringunique, required, length: 64SHA-256 hex of the ciphertext — idempotency key + DB-level duplicate guardsenderVpaStringrequiredSender Virtual Payment AddressreceiverVpaStringrequiredReceiver Virtual Payment AddressamountPaiseNumberrequired, integer, min: 1Amount in paisesignedAtDaterequiredWhen the sender originally signed the payment (inside the encrypted payload)settledAtDaterequiredWhen the backend processed the packetbridgeNodeIdStringrequiredJWT identity of the bridge node that delivered the packethopCountNumberrequired, integer, min: 0Number of mesh hops the packet tookstatusStringenum: SETTLED | REJECTED, requiredFinal outcome of the ingestion pipeline
-8.3 BridgeNode (new)
-FieldTypeConstraintsDescriptionnodeIdStringunique, requiredHuman-readable identifier — e.g. phone-bridge-42jwtSecretStringrequired, select: falsePer-node signing secret for JWT generationregisteredAtDateautoWhen the node was registeredlastSeenAtDateoptionalUpdated on every successful ingest
-8.4 AuditLog (new)
-FieldTypeConstraintsDescriptionpacketHashStringrequiredHash of the rejected packetoutcomeStringenum: REJECTED | INVALID, requiredWhy the packet was not settledreasonStringoptionalHuman-readable reason — e.g. insufficient_balance, stale_packetsenderVpaStringoptionalPopulated after decryption if availablebridgeNodeIdStringrequiredWhich bridge node submitted the packettimestampDateautoWhen the rejection occurred
-
-9. API Reference
-All endpoints are prefixed with /api. The /bridge/ingest endpoint requires a Bearer JWT in the Authorization header (obtained from /bridge/register). All other endpoints are open for demo purposes.
-
-MethodPathAuthDescriptionNotesGET/api/server-keyNoneReturns RSA public key (base64) for client-side encryptionCache this on the frontend — key is stable per server restartGET/api/accountsNoneAll demo accounts with current balancesGET/api/transactionsNoneLast 20 settled/rejected transactionsSorted by settledAt descGET/api/mesh/stateNoneCurrent packet count per virtual device + idempotency cache sizePOST/api/demo/sendNoneSimulate sender phone — encrypt PaymentInstruction, inject into meshBody: senderVpa, receiverVpa, amount, pin, ttl?POST/api/mesh/gossipNoneRun one round of gossip across all virtual devicesReturns transfer count per devicePOST/api/mesh/flushNoneAll bridge nodes upload held packets to backend (parallel)Exercises concurrent idempotencyPOST/api/mesh/resetNoneClear all device queues + idempotency cacheDemo/test onlyPOST/api/bridge/registerNoneRegister a new bridge node — returns signed JWTOne-time setup per nodePOST/api/bridge/ingestBearer JWTTHE production endpoint. Bridge nodes POST mesh packets hereRate-limited, auth-gated, fully validatedGET/api/audit-logNoneAll REJECTED transactions with reasons + timestampsNew in MERN version — silent rejection fix
-9.1 Ingest Request Format
-POST /api/bridge/ingest — the production ingestion endpoint. Bridge nodes POST here whenever they regain connectivity.
-
-Headers required: Authorization: Bearer <jwt>  |  Content-Type: application/json
-
-Request body fields: packetId (string, UUID), ttl (number, 0-10), createdAt (number, epoch ms), ciphertext (string, base64-encoded RSA+AES blob).
-
-Response fields: outcome (SETTLED | DUPLICATE_DROPPED | INVALID), packetHash (string), reason (string or null), transactionId (string or null).
-
-10. Ingestion Pipeline — Step by Step
-When a bridge node POSTs to /api/bridge/ingest, the request passes through the following pipeline in order. Any step can short-circuit the pipeline and return an immediate response.
-
-Step 1 — Middleware: JWT Authentication
-bridgeAuth.js verifies the Bearer token against the per-node JWT secret stored in MongoDB. If the token is missing, expired, or invalid, the request is rejected with HTTP 401 before any pipeline logic runs.
-Step 2 — Middleware: Rate Limiting
-rateLimiter.js checks a Redis counter keyed by bridgeNodeId. If the node exceeds the configured window limit (default: 100 requests per 60 seconds), the request is rejected with HTTP 429.
-Step 3 — Middleware: Input Validation
-inputValidator.js runs the request body through a Zod schema. Validates: ciphertext is a non-empty base64 string, ttl is an integer between 0 and 10, createdAt is a recent epoch timestamp, amountPaise (if pre-parsed) is between 1 and 10,000,000 (₹1 lakh).
-Step 4 — Hash the Ciphertext
-BridgeIngestionService computes SHA-256(ciphertext). This becomes the idempotency key. Hashing is performed before decryption — no expensive RSA operation is wasted on a duplicate.
-Step 5 — Idempotency Gate
-idempotencyService.js calls Redis SET packetHash 1 NX EX 86400. If the key already exists (another bridge already claimed it), the function returns false and the pipeline returns DUPLICATE_DROPPED immediately.
-Step 6 — Decrypt
-hybridCryptoService.js decrypts the ciphertext: RSA-OAEP unwraps the AES-256 session key, then AES-256-GCM decrypts the payload and simultaneously verifies the 16-byte authentication tag. Any single-bit tampering throws an exception caught as INVALID.
-Step 7 — Freshness Check
-The signedAt field inside the decrypted payload is compared against the current server time. Packets older than 24 hours are rejected as stale_packet. Packets more than 5 minutes in the future are rejected as future_dated (clock-skew tolerance).
-Step 8 — TTL Integrity Check (new)
-The ttl field inside the encrypted payload is compared against the outer packet TTL. If the outer TTL exceeds the inner TTL (an intermediate tried to extend the packet's life), the packet is rejected as ttl_tampered.
-Step 9 — PIN Verification (new)
-settlementService.js fetches the sender's account and calls bcrypt.compare(instruction.pinHash, account.pinHash). If the PIN does not match, the transaction is rejected as invalid_pin before any balance modification occurs.
-Step 10 — Atomic Settlement
-settlementService.js opens a MongoDB session, calls session.startTransaction(), debits the sender's balancePaise, credits the receiver's balancePaise, writes a Transaction document with the packetHash, and calls session.commitTransaction(). If any step fails, session.abortTransaction() rolls back all changes. The Transaction document's unique index on packetHash provides a database-level defense-in-depth fallback if Redis ever fails.
-Step 11 — Real-time Notification (new)
-meshSocket.js emits a Socket.io event to all connected dashboard clients — tx:settled on success or tx:rejected on failure. The React dashboard updates the transaction ledger and account balances in real time without any polling.
-
-11. Project File Structure
-
-PathPurposeserver/src/crypto/serverKeyHolder.jsGenerates RSA-2048 keypair on startup. Public key served to frontend.server/src/crypto/hybridCryptoService.jsRSA-OAEP + AES-256-GCM encrypt / decrypt + SHA-256 hash. Core of security.server/src/models/Account.jsMongoose schema — vpa PK, balancePaise, pinHash, versionKey.server/src/models/Transaction.jsSettled/rejected tx ledger. packetHash has unique index (DB fallback).server/src/models/BridgeNode.jsNEW: registered bridge nodes with per-node JWT secrets.server/src/models/AuditLog.jsNEW: every rejected / invalid packet logged here with reason.server/src/middleware/bridgeAuth.jsNEW: JWT verification middleware — gates /bridge/ingest.server/src/middleware/rateLimiter.jsNEW: express-rate-limit + Redis store per bridge node.server/src/middleware/inputValidator.jsNEW: Zod schema — amount cap, TTL range, ciphertext format.server/src/services/idempotencyService.jsRedis SET NX EX 86400 — distributed atomic idempotency.server/src/services/settlementService.jsMongoose session atomic transfer + PIN verify (bcrypt).server/src/services/bridgeIngestionService.jsFull 11-step pipeline orchestrator.server/src/services/meshSimulatorService.jsJS port of gossip logic — Map of VirtualDevice objects.server/src/services/demoService.jsSeeds accounts, createPacket() simulates sender phone.server/src/socket/meshSocket.jsNEW: Socket.io — tx:settled and tx:rejected push events.server/src/routes/api.jsAll REST routes except /bridge/ingest.server/src/routes/bridge.js/bridge/ingest + /bridge/register with auth + rate limit.server/src/app.jsExpress setup, middleware chain, Socket.io init, MongoDB connect.client/src/components/MeshVisualizer.jsxLive device grid — packet counts per phone, gossip animation.client/src/components/PaymentForm.jsxSend payment form — senderVpa, receiverVpa, amount, PIN.client/src/components/TransactionLedger.jsxReal-time ledger — updates via Socket.io tx events.client/src/components/AccountBalances.jsxLive balance table — updates after each settlement.server/tests/crypto.test.jsencrypt-decrypt roundtrip, tamper detection, hash consistency.server/tests/idempotency.test.jsPromise.all concurrent ingest — exactly 1 SETTLED, rest DUPLICATE.server/tests/pipeline.test.jsFull pipeline integration — stale, tampered, insufficient balance.
-12. Acceptance Criteria
-12.1 Security Tests — Must All Pass
-• AC-01: encrypt-decrypt roundtrip preserves all PaymentInstruction fields exactly (senderVpa, receiverVpa, amountPaise, pinHash, nonce, signedAt).
-• AC-02: Flipping one byte anywhere in the ciphertext causes decryption to throw — ingestion returns INVALID.
-• AC-03: Promise.all with 3 concurrent ingest() calls for the same packet results in exactly 1 SETTLED and 2 DUPLICATE_DROPPED.
-• AC-04: Sender's balance decrements by exactly amountPaise once — not twice or three times — after the concurrent test.
-• AC-05: A packet with signedAt more than 24 hours ago returns INVALID with reason stale_packet.
-• AC-06: A packet with outer TTL higher than inner (encrypted) TTL returns INVALID with reason ttl_tampered.
-• AC-07: A packet with an incorrect PIN returns INVALID with reason invalid_pin and no balance change.
-• AC-08: A request to /bridge/ingest without a valid JWT returns HTTP 401 before any pipeline logic runs.
-• AC-09: A bridge node exceeding the rate limit receives HTTP 429. Idempotency cache and DB are not touched.
-• AC-10: A transaction amount above ₹1,00,000 is rejected by Zod validation with HTTP 400.
-
-12.2 Functional Tests
-• AC-11: React dashboard updates account balances within 500ms of a settlement without page refresh (Socket.io).
-• AC-12: A REJECTED transaction appears in the audit log with the correct reason and triggers a tx:rejected Socket.io event.
-• AC-13: Two gossip rounds distribute a single injected packet to all 5 virtual devices.
-• AC-14: Mesh flush with all 5 devices holding the same packet produces exactly 1 SETTLED and 4 DUPLICATE_DROPPED.
-• AC-15: Server restart does not re-settle packets that were already settled (Redis TTL persists across restarts).
-
-12.3 Non-Functional Requirements
-• NFR-01: Ingestion pipeline (steps 1-11) must complete within 500ms under normal load.
-• NFR-02: The system must support at least 3 concurrent bridge nodes without idempotency failures.
-• NFR-03: All environment secrets (MongoDB URI, Redis URL, JWT secrets) must be in .env — never hardcoded.
-• NFR-04: All test suites must pass with npm test — no manual steps required.
-
-13. Honest Limitations
-This section documents inherent limitations of the offline mesh payment concept itself — not bugs or omissions in the implementation.
-
-13.1 Receiver Cannot Verify Funds Offline
-When Alice hands Bob a phone showing the payment was sent, it is an IOU — not a settled transaction. If Alice's account is empty when the packet finally reaches the backend, the settlement will be REJECTED. Bob has no way to verify this offline. Real offline UPI (UPI Lite) solves this with a pre-funded hardware-backed wallet that provides cryptographic proof of available funds. This demo does not implement that.
-13.2 Offline Double-Spend is Possible
-With ₹500 in her account, Alice could inject a ₹500 packet to Bob in one basement, then walk to another basement and inject another ₹500 packet to Carol. Whichever bridge node reaches the internet first causes a settlement; the second is rejected. Alice may have intentionally or accidentally double-spent. The system correctly handles this by rejecting the second packet, but it cannot prevent the attempt.
-13.3 Real Bluetooth is Hard
-Background BLE on Android is heavily throttled since Android 8. iOS peripheral mode is locked down by the OS. Two strangers' phones forming a reliable GATT connection while apps are not actively open is genuinely difficult. This implementation simulates the mesh in software and does not address this engineering challenge.
-13.4 Privacy and Metadata
-A stranger's phone carries an encrypted packet. They cannot read the payment details, but the existence of the packet is metadata. In a real deployment, regulatory disclosures and device seizure scenarios would require careful consideration.
-13.5 Demo vs Production Gap
-This implementation uses: an in-process RSA keypair (production requires HSM), seeded demo accounts (production requires KYC), bcrypt PIN verification against local data (production requires bank core integration), and a single Node.js process (production requires a horizontally scaled cluster with shared Redis). The cryptographic pipeline and idempotency logic are production-shaped; the infrastructure around them is not.
-
-14. Glossary
-TermDefinitionAES-256-GCMAdvanced Encryption Standard in Galois/Counter Mode with a 256-bit key. Provides both confidentiality and authenticated integrity — any ciphertext modification is detected.Atomic transferA database operation where debit and credit either both succeed or both fail — no partial state is possible.bcryptA password hashing function that is intentionally slow, making brute-force attacks expensive. Used for PIN storage.Bridge nodeA mesh participant that has internet connectivity and uploads held packets to the backend when connectivity is available.Ciphertext hashSHA-256 of the encrypted packet bytes — used as the idempotency key. Two legitimate copies of the same packet have identical ciphertext and therefore identical hashes.GCM auth tagA 16-byte cryptographic tag appended to AES-GCM ciphertext. Any modification to the ciphertext or tag causes decryption to fail, making tampering detectable.Gossip protocolA network propagation strategy where each node shares its known data with neighbours. Used here to spread packets through the mesh before a bridge reaches connectivity.Hybrid encryptionCombining asymmetric encryption (RSA, slow, for key transport) with symmetric encryption (AES, fast, for data). The same scheme used by TLS.IdempotencyA property of an operation that produces the same result regardless of how many times it is applied. Here: settling a payment exactly once regardless of how many times the same packet arrives.Mesh packetThe outer envelope carrying an encrypted PaymentInstruction through the mesh. Contains packetId, ttl, createdAt, and the opaque ciphertext.NonceA UUID generated fresh for each payment intent. Ensures two identical payments (same sender, receiver, amount) produce different ciphertexts and different hashes.Optimistic lockingA concurrency control pattern where a version counter is checked before writing. If another process modified the record first, the write fails with a conflict error instead of silently overwriting.PaiseThe smallest unit of Indian currency (1/100 of a Rupee). Storing amounts in paise as integers avoids floating-point arithmetic errors.RSA-OAEPRSA encryption with Optimal Asymmetric Encryption Padding (SHA-256). Used to encrypt the AES session key so only the server with the private key can unwrap it.SET NX EXA Redis command: SET key value NX (only if Not eXists) EX seconds (with expiry). The atomic primitive that implements distributed idempotency.signedAtAn epoch-millisecond timestamp embedded inside the encrypted PaymentInstruction. Used for freshness checking and replay protection.TTLTime-to-live. A counter decremented at each mesh hop. Packets reaching TTL 0 are not forwarded further, preventing infinite propagation.VPAVirtual Payment Address — the UPI identifier for an account, e.g. alice@demo. Analogous to an email address for money.ZodA TypeScript/JavaScript schema validation library. Used here to enforce input constraints (amount limits, TTL range, ciphertext format) at the API boundary.
-End of Document
-
-UPI Offline Mesh — MERN Edition  |  PRD v1.0.0  |  For academic and portfolio use
-Confidential — For academic / portfolio use only	Page 
