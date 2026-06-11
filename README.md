@@ -1,7 +1,7 @@
 # UPI Offline Mesh 🌐📱
 > Deferred Settlement Simulator for Offline Digital Payments
 
-UPI Offline Mesh is a full-stack proof-of-concept demonstrating how secure, offline digital payments can be routed through a peer-to-peer Bluetooth/Wi-Fi Direct mesh network until one node reaches the internet to perform deferred settlement. This project showcases deep expertise in hybrid cryptography, concurrent transaction safety, and distributed systems.
+UPI Offline Mesh is a full-stack proof-of-concept demonstrating how secure, offline digital payments can be routed through a peer-to-peer Bluetooth Direct mesh network until one node reaches the internet to perform deferred settlement. This project showcases deep expertise in hybrid cryptography, concurrent transaction safety, and distributed systems.
 
 ![MongoDB](https://img.shields.io/badge/MongoDB-%234ea94b.svg?style=for-the-badge&logo=mongodb&logoColor=white)
 ![Express.js](https://img.shields.io/badge/express.js-%23404d59.svg?style=for-the-badge&logo=express&logoColor=%2361DAFB)
